@@ -5,6 +5,8 @@ from huobi.exception.huobi_api_exception import *
 import asyncio
 import requests
 import threading
+import gzip
+from websockets import connect
 
 
 def reformat_crypto_name(name, symbol_dictionary):
@@ -19,105 +21,104 @@ def reformat_crypto_name(name, symbol_dictionary):
     return crypto_name
 
 
-def rest_get_trades(p, s_dict):
-    market_client = MarketClient()
+def rest_get_trades(bc, qc):
+    coin_name = bc.upper() + '-' + qc.upper()
 
-    coin_name = reformat_crypto_name(p, s_dict)
-
-    try:
-        # get history of trades of certain cryptocoin
-        res = market_client.get_history_trade(p, 50)
-
-        # print the needed output in a certain format
-        for element in res:
-            print('!', element.ts,
-                  'huobi', coin_name,
-                  str(element.direction)[:1].upper(), str('{0:.9f}'.format(element.price)),
-                  str('{0:.4f}'.format(element.amount)))
-    except HuobiApiException:
-        # handle errors
+    # get history of trades of certain cryptocoin
+    trade_url = f"https://api.huobi.pro/market/history/trade?symbol={bc + qc}&size=2000"
+    responseJSON = requests.get(trade_url)
+    resp = responseJSON.json()
+    if resp['status'] != 'ok':
         print(f'Trades for coin {coin_name} can`t be found')
+        return
+
+    for elem_out in resp['data']:
+        for elem_in in elem_out['data']:
+            print('!', elem_in['ts'],
+                  'huobi', coin_name,
+                  str(elem_in['direction'])[:1].upper(), str('{0:.9f}'.format(elem_in['price'])),
+                  str('{0:.4f}'.format(elem_in['amount'])))
 
 
-def trade(symbol_dict, list_pairs):
+def trade(symbol_dict):
     # create trades for each cryptocoin symbol
-    for i in range(len(list_pairs)):
-        rest_get_trades(list_pairs[i], symbol_dict)
+    for key, value in symbol_dict.items():
+        rest_get_trades(key, value)
 
 
-def order(symbol_dict, list_pairs):
-    for symb in list_pairs:
-        sdk_get_orders(symb, 500, symbol_dict)
+def order(symbol_dict):
+    for key, value in symbol_dict.items():
+        sdk_get_orders(key, value)
 
 
-def delta(symbol_dict, list_pairs):
-    for symb in list_pairs:
-        asyncio.run(rest_get_deltas(symb, 'step0', symbol_dict))
+def delta(symbol_dict):
+    for key, value in symbol_dict.items():
+        rest_get_deltas(key, value)
 
 
-async def rest_get_deltas(symbol_pair, level, s_dict):
-    url = f'https://api.huobi.pro/market/depth?symbol={symbol_pair}&depth=20&type={level}'
+def rest_get_deltas(bc, qc):
+    delta_url = f'https://api.huobi.pro/market/depth?symbol={bc+qc}&depth=20&type=step0'
 
-    responseJSON = requests.get(url)
+    responseJSON = requests.get(delta_url)
     response = responseJSON.json()
-    if response['status'] == 'error':
-        print(f"No deltas available for symbol {reformat_crypto_name(symbol_pair, s_dict)}")
+    if response['status'] != 'ok':
+        print(f"No deltas available for symbol {bc.upper() + '-' + qc.upper()}")
         return
     answer = ''
-    answer += '$ ' + str(response['ts']) + ' huobi ' + reformat_crypto_name(symbol_pair, s_dict) + ' B' + ' '
+    answer += '$ ' + str(response['ts']) + ' huobi ' + bc.upper() + '-' + qc.upper() + ' B' + ' '
     for elem in response['tick']['bids']:
         answer += str(elem[1]) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
     answer = answer[:-2]
-    print(answer)
+    # print(answer)
 
-    answer = ''
-    answer += '$ ' + str(response['ts']) + ' huobi ' + reformat_crypto_name(symbol_pair, s_dict) + ' S' + ' '
+    answer += '\n'
+    answer += '$ ' + str(response['ts']) + ' huobi ' + bc.upper() + '-' + qc.upper() + ' S' + ' '
     for elem in response['tick']['asks']:
         answer += str(elem[1]) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
     answer = answer[:-2]
     print(answer)
 
 
-def sdk_get_orders(symbol, depth, s_dict):
-    market_client = MarketClient()
+def sdk_get_orders(bc, qc):
+    order_url = f'https://api.huobi.pro/market/depth?symbol={bc + qc}&type=step0'
 
-    try:
-        order_book = market_client.get_pricedepth(symbol, DepthStep.STEP0, depth)
-        answer = ''
-        answer += '$ ' + str(order_book.ts) + ' huobi ' + reformat_crypto_name(symbol, s_dict) + ' B' + ' '
-        for i in range(len(order_book.bids)):
-            answer += str(order_book.bids[i].amount) + '@' + str('{0:.8f}'.format(order_book.bids[i].price)) + ' | '
-        answer = answer[:-2] + 'R'
-        print(answer)
+    responseJSON = requests.get(order_url)
+    response = responseJSON.json()
+    if response['status'] != 'ok':
+        print(f"No deltas available for symbol {bc.upper() + '-' + qc.upper()}")
+        return
+    answer = ''
+    answer += '$ ' + str(response['ts']) + ' huobi ' + bc.upper() + '-' + qc.upper() + ' B' + ' '
+    for elem in response['tick']['bids']:
+        answer += str(elem[1]) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
+    answer = answer[:-2] +'R'
+    #print(answer)
 
-        answer = ''
-        answer += '$ ' + str(order_book.ts) + ' huobi ' + reformat_crypto_name(symbol, s_dict) + ' S' + ' '
-        for i in range(len(order_book.asks)):
-            answer += str(order_book.asks[i].amount) + '@' + str('{0:.8f}'.format(order_book.asks[i].price)) + ' | '
-        answer = answer[:-2] + 'R'
-        print(answer)
-    except HuobiApiException:
-        print(f"No order book available for symbol {reformat_crypto_name(symbol, s_dict)}")
+    answer += '\n'
+    answer += '$ ' + str(response['ts']) + ' huobi ' + bc.upper() + '-' + qc.upper() + ' S' + ' '
+    for elem in response['tick']['asks']:
+        answer += str(elem[1]) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
+    answer = answer[:-2] +'R'
+    print(answer)
 
 
 def main():
     # get all cryptocoin symbols
-    generic_client = GenericClient()
-    list_obj = generic_client.get_exchange_symbols()
-    list_pairs = list()
-    for elem in list_obj:
-        list_pairs.append(elem.symbol)
+    currency_url = 'https://api.huobi.pro/v1/settings/common/market-symbols'
+    curr_response = requests.get(currency_url)
+    resp = curr_response.json()
+    list_symbols = list()
+    for i in range(len(resp['data'])):
+        list_symbols.append(resp['data'][i]['symbol'])
 
     # get all pairs of base and quote currencies to check while creating trades
-    general_client = GenericClient()
-    symbol_pairs = general_client.get_exchange_symbols()
     symbol_dict = dict()
-    for i in range(len(symbol_pairs)):
-        symbol_dict[symbol_pairs[i].quote_currency] = symbol_pairs[i].base_currency
+    for i in range(len(resp['data'])):
+        symbol_dict[resp['data'][i]['bc']] = resp['data'][i]['qc']
 
-    t1 = threading.Thread(target=trade, args=(symbol_dict, list_pairs))
-    t2 = threading.Thread(target=order, args=(symbol_dict, list_pairs))
-    t3 = threading.Thread(target=delta, args=(symbol_dict, list_pairs))
+    t1 = threading.Thread(target=trade, args=(symbol_dict,))
+    t2 = threading.Thread(target=order, args=(symbol_dict,))
+    t3 = threading.Thread(target=delta, args=(symbol_dict,))
 
     t1.start()
     t2.start()
