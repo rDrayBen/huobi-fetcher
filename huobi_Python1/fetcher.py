@@ -118,10 +118,10 @@ def main():
     t1 = threading.Thread(target=trade, args=(symbol_dict, list_pairs))
     t2 = threading.Thread(target=order, args=(symbol_dict, list_pairs))
     t3 = threading.Thread(target=delta, args=(symbol_dict, list_pairs))
-
-    t1.start()
-    t2.start()
-    t3.start()
+    while True:
+        t1.start()
+        t2.start()
+        t3.start()
 
 
     # trade(symbol_dict, list_pairs)
