@@ -1,4 +1,6 @@
 # huobi-fetcher
+https://www.huobi.com/en-us/
+
 Fetcher for huobi crypto exchange to get trades, order books and deltas for all available crypto symbols
 
 Functions trade, order and delta call other functions to achieve certain data
