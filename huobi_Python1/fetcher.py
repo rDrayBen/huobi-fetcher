@@ -1,133 +1,170 @@
+import json
+import ast
 from huobi.client.generic import *
 from huobi.client.market import *
 from huobi.constant.definition import *
 from huobi.exception.huobi_api_exception import *
 import asyncio
 import requests
+import datetime
 import threading
 import gzip
 from websockets import connect
+import websocket
+import time
+
+# get all cryptocoin symbols
+currency_url = 'https://api.huobi.pro/v1/settings/common/market-symbols'
+curr_response = requests.get(currency_url)
+resp = curr_response.json()
+size_symbols = dict()
+symbol_dict = dict()
+for i in range(len(resp['data'])):
+    if resp['data'][i]['state'] == 'online':
+        size_symbols[resp['data'][i]['symbol']] = (resp['data'][i]['bc']).upper() + \
+                                                  '-' + (resp['data'][i]['qc']).upper()
+        symbol_dict[resp['data'][i]['bc']] = resp['data'][i]['qc']
 
 
-def reformat_crypto_name(name, symbol_dictionary):
-    # get the name of cryptocoin in the correct format, example before 'btcusdt', after 'BTC-USDT'
-    crypto_name = ''
-    for i in range(-1, -len(name), -1):
-        temp = str(name[i:])
-        search_res = symbol_dictionary.get(temp)
-        if search_res:
-            crypto_name = name[:i].upper() + '-' + name[i:].upper()
-            break
-    return crypto_name
+def get_unix_time():
+    return round(time.time() * 1000)
 
 
-def rest_get_trades(bc, qc):
-    coin_name = bc.upper() + '-' + qc.upper()
+def get_trades(ws, message):
+    trade_data = json.loads(gzip.decompress(message))
 
-    # get history of trades of certain cryptocoin
-    trade_url = f"https://api.huobi.pro/market/history/trade?symbol={bc + qc}&size=2000"
-    responseJSON = requests.get(trade_url)
-    resp = responseJSON.json()
-    if resp['status'] != 'ok':
-        print(f'Trades for coin {coin_name} can`t be found')
-        return
-
-    for elem_out in resp['data']:
-        for elem_in in elem_out['data']:
-            print('!', elem_in['ts'],
-                  'huobi', coin_name,
-                  str(elem_in['direction'])[:1].upper(), str('{0:.9f}'.format(elem_in['price'])),
-                  str('{0:.4f}'.format(elem_in['amount'])))
+    if 'ping' in trade_data:
+        ws.send(json.dumps({
+            "pong": trade_data['ping']
+        }))
+    elif 'ch' in trade_data:
+        coin_name = trade_data['ch'].replace('market.', '').replace('.trade.detail', '')
+        for elem in trade_data['tick']['data']:
+            print('!', get_unix_time(),
+                      'huobi', size_symbols[coin_name],
+                      str(elem['direction'])[:1].upper(), str('{0:.9f}'.format(elem['price'])),
+                      str('{0:.4f}'.format(elem['amount'])))
 
 
-def trade(symbol_dict):
+def trade(ws):
     # create trades for each cryptocoin symbol
     for key, value in symbol_dict.items():
-        rest_get_trades(key, value)
+        ws.send(json.dumps({
+            "sub": f"market.{key + value}.trade.detail",
+            'id': '428550639'
+        }))
 
 
-def order(symbol_dict):
+def order(ws):
     for key, value in symbol_dict.items():
-        sdk_get_orders(key, value)
+        ws.send(json.dumps({
+            "sub": f"market.{key+value}.depth.step0",
+            'id': '428550639'
+        }))
 
 
-def delta(symbol_dict):
+def get_orders(ws, message):
+    order_data = json.loads(gzip.decompress(message))
+
+    if 'ping' in order_data:
+        ws.send(json.dumps({
+            "pong": order_data['ping']
+        }))
+    elif 'ch' in order_data:
+        coin_name = order_data['ch'].replace('market.', '').replace('.depth.step0', '')
+        answer = ''
+        if len(order_data['tick']['bids']) != 0:
+            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' B' + ' '
+            for elem in order_data['tick']['bids']:
+                answer += str('{0:.10f}'.format(elem[1])) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
+            answer = answer[:-2] + 'R'
+
+        if len(order_data['tick']['asks']) != 0:
+            answer += '\n'
+            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' S' + ' '
+            for elem in order_data['tick']['asks']:
+                answer += str('{0:.10f}'.format(elem[1])) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
+            answer = answer[:-2] + 'R'
+
+        if answer != '':
+            print(answer)
+
+
+def delta(ws):
     for key, value in symbol_dict.items():
-        rest_get_deltas(key, value)
+        ws.send(json.dumps({
+            "sub": f"market.{key+value}.mbp.150",
+            'id': '428550639'
+        }))
 
 
-def rest_get_deltas(bc, qc):
-    delta_url = f'https://api.huobi.pro/market/depth?symbol={bc+qc}&depth=20&type=step0'
+def get_deltas(ws, message):
+    delta_data = json.loads(gzip.decompress(message))
 
-    responseJSON = requests.get(delta_url)
-    response = responseJSON.json()
-    if response['status'] != 'ok':
-        print(f"No deltas available for symbol {bc.upper() + '-' + qc.upper()}")
-        return
-    answer = ''
-    answer += '$ ' + str(response['ts']) + ' huobi ' + bc.upper() + '-' + qc.upper() + ' B' + ' '
-    for elem in response['tick']['bids']:
-        answer += str(elem[1]) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
-    answer = answer[:-2]
-    # print(answer)
+    if 'ping' in delta_data:
+        ws.send(json.dumps({
+            "pong": delta_data['ping']
+        }))
+    elif 'ch' in delta_data:
+        coin_name = delta_data['ch'].replace('market.', '').replace('.mbp.150', '')
+        answer = ''
+        if delta_data['tick']['bids']:
+            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' B' + ' '
+            for elem in delta_data['tick']['bids']:
+                answer += str('{0:.10f}'.format(elem[1])) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
+            answer = answer[:-2]
 
-    answer += '\n'
-    answer += '$ ' + str(response['ts']) + ' huobi ' + bc.upper() + '-' + qc.upper() + ' S' + ' '
-    for elem in response['tick']['asks']:
-        answer += str(elem[1]) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
-    answer = answer[:-2]
-    print(answer)
+        if delta_data['tick']['asks']:
+            answer += '\n'
+            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' S' + ' '
+            for elem in delta_data['tick']['asks']:
+                answer += str('{0:.10f}'.format(elem[1])) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
+            answer = answer[:-2]
+
+        if answer != '':
+            print(answer)
 
 
-def sdk_get_orders(bc, qc):
-    order_url = f'https://api.huobi.pro/market/depth?symbol={bc + qc}&type=step0'
+def main1(ws):
+    trade(ws)
+    while True:
+        message_trade = ws.recv()
+        try:
+            get_trades(ws, message_trade)
+        except:
+            pass
 
-    responseJSON = requests.get(order_url)
-    response = responseJSON.json()
-    if response['status'] != 'ok':
-        print(f"No deltas available for symbol {bc.upper() + '-' + qc.upper()}")
-        return
-    answer = ''
-    answer += '$ ' + str(response['ts']) + ' huobi ' + bc.upper() + '-' + qc.upper() + ' B' + ' '
-    for elem in response['tick']['bids']:
-        answer += str(elem[1]) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
-    answer = answer[:-2] +'R'
-    #print(answer)
 
-    answer += '\n'
-    answer += '$ ' + str(response['ts']) + ' huobi ' + bc.upper() + '-' + qc.upper() + ' S' + ' '
-    for elem in response['tick']['asks']:
-        answer += str(elem[1]) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
-    answer = answer[:-2] +'R'
-    print(answer)
+def main2(ws):
+    order(ws)
+    while True:
+        message_order = ws.recv()
+        try:
+            get_orders(ws, message_order)
+        except:
+            pass
+
+
+def main3(ws):
+    delta(ws)
+    while True:
+        message_delta = ws.recv()
+        try:
+            get_deltas(ws, message_delta)
+        except:
+            pass
 
 
 def main():
-    # get all cryptocoin symbols
-    currency_url = 'https://api.huobi.pro/v1/settings/common/market-symbols'
-    curr_response = requests.get(currency_url)
-    resp = curr_response.json()
-    list_symbols = list()
-    for i in range(len(resp['data'])):
-        list_symbols.append(resp['data'][i]['symbol'])
+    ws = websocket.create_connection("wss://api.huobi.pro/ws")
 
-    # get all pairs of base and quote currencies to check while creating trades
-    symbol_dict = dict()
-    for i in range(len(resp['data'])):
-        symbol_dict[resp['data'][i]['bc']] = resp['data'][i]['qc']
-
-    t1 = threading.Thread(target=trade, args=(symbol_dict,))
-    t2 = threading.Thread(target=order, args=(symbol_dict,))
-    t3 = threading.Thread(target=delta, args=(symbol_dict,))
+    t1 = threading.Thread(target=main1, args=(ws,))
+    t2 = threading.Thread(target=main2, args=(ws,))
+    t3 = threading.Thread(target=main3, args=(ws,))
 
     t1.start()
     t2.start()
     t3.start()
-
-
-    # trade(symbol_dict, list_pairs)
-    # order(symbol_dict, list_pairs)
-    # delta(symbol_dict, list_pairs)
 
 
 if __name__ == '__main__':
