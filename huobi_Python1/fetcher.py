@@ -74,20 +74,16 @@ def get_orders(ws, message):
         coin_name = order_data['ch'].replace('market.', '').replace('.depth.step0', '')
         answer = ''
         if len(order_data['tick']['bids']) != 0:
-            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' B' + ' '
-            for elem in order_data['tick']['bids']:
-                answer += str('{0:.10f}'.format(elem[1])) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
-            answer = answer[:-2] + 'R'
-
+            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' B '
+            pq = '|'.join(f"{str('{0:.10f}'.format(elem[1]))}@{str('{0:.8f}'.format(elem[0]))}"
+                               for elem in order_data['tick']['bids']) + ' R'
+            print(answer + pq)
         if len(order_data['tick']['asks']) != 0:
-            answer += '\n'
-            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' S' + ' '
-            for elem in order_data['tick']['asks']:
-                answer += str('{0:.10f}'.format(elem[1])) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
-            answer = answer[:-2] + 'R'
-
-        if answer != '':
-            print(answer)
+            answer = ''
+            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' S '
+            pq = '|'.join(f"{str('{0:.10f}'.format(elem[1]))}@{str('{0:.8f}'.format(elem[0]))}"
+                               for elem in order_data['tick']['asks']) + ' R'
+            print(answer + pq)
 
 
 def delta(ws):
@@ -109,20 +105,17 @@ def get_deltas(ws, message):
         coin_name = delta_data['ch'].replace('market.', '').replace('.mbp.150', '')
         answer = ''
         if delta_data['tick']['bids']:
-            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' B' + ' '
-            for elem in delta_data['tick']['bids']:
-                answer += str('{0:.10f}'.format(elem[1])) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
-            answer = answer[:-2]
+            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' B '
+            pq = '|'.join(f"{str('{0:.10f}'.format(elem[1]))}@{str('{0:.8f}'.format(elem[0]))}"
+                          for elem in delta_data['tick']['bids'])
+            print(answer + pq)
 
         if delta_data['tick']['asks']:
-            answer += '\n'
-            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' S' + ' '
-            for elem in delta_data['tick']['asks']:
-                answer += str('{0:.10f}'.format(elem[1])) + '@' + str('{0:.8f}'.format(elem[0])) + ' | '
-            answer = answer[:-2]
-
-        if answer != '':
-            print(answer)
+            answer = ''
+            answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' S '
+            pq = '|'.join(f"{str('{0:.10f}'.format(elem[1]))}@{str('{0:.8f}'.format(elem[0]))}"
+                          for elem in delta_data['tick']['asks'])
+            print(answer + pq)
 
 
 def main1(ws):
