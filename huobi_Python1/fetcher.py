@@ -1,20 +1,13 @@
 import json
-import ast
-from huobi.client.generic import *
-from huobi.client.market import *
-from huobi.constant.definition import *
-from huobi.exception.huobi_api_exception import *
-import asyncio
 import requests
-import datetime
 import threading
 import gzip
-from websockets import connect
 import websocket
 import time
 
 # get all cryptocoin symbols
 currency_url = 'https://api.huobi.pro/v1/settings/common/market-symbols'
+lock = threading.Lock()
 curr_response = requests.get(currency_url)
 resp = curr_response.json()
 size_symbols = dict()
@@ -40,10 +33,12 @@ def get_trades(ws, message):
     elif 'ch' in trade_data:
         coin_name = trade_data['ch'].replace('market.', '').replace('.trade.detail', '')
         for elem in trade_data['tick']['data']:
+            lock.acquire()
             print('!', get_unix_time(),
                       'huobi', size_symbols[coin_name],
                       str(elem['direction'])[:1].upper(), str('{0:.9f}'.format(elem['price'])),
-                      str('{0:.4f}'.format(elem['amount'])))
+                      str('{0:.4f}'.format(elem['amount'])), flush=True)
+            lock.release()
 
 
 def trade(ws):
@@ -77,13 +72,17 @@ def get_orders(ws, message):
             answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' B '
             pq = '|'.join(f"{str('{0:.10f}'.format(elem[1]))}@{str('{0:.8f}'.format(elem[0]))}"
                                for elem in order_data['tick']['bids']) + ' R'
-            print(answer + pq)
+            lock.acquire()
+            print(answer + pq, flush=True)
+            lock.release()
         if len(order_data['tick']['asks']) != 0:
             answer = ''
             answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' S '
             pq = '|'.join(f"{str('{0:.10f}'.format(elem[1]))}@{str('{0:.8f}'.format(elem[0]))}"
                                for elem in order_data['tick']['asks']) + ' R'
-            print(answer + pq)
+            lock.acquire()
+            print(answer + pq, flush=True)
+            lock.release()
 
 
 def delta(ws):
@@ -108,14 +107,18 @@ def get_deltas(ws, message):
             answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' B '
             pq = '|'.join(f"{str('{0:.10f}'.format(elem[1]))}@{str('{0:.8f}'.format(elem[0]))}"
                           for elem in delta_data['tick']['bids'])
-            print(answer + pq)
+            lock.acquire()
+            print(answer + pq, flush=True)
+            lock.release()
 
         if delta_data['tick']['asks']:
             answer = ''
             answer += '$ ' + str(get_unix_time()) + ' huobi ' + size_symbols[coin_name] + ' S '
             pq = '|'.join(f"{str('{0:.10f}'.format(elem[1]))}@{str('{0:.8f}'.format(elem[0]))}"
                           for elem in delta_data['tick']['asks'])
-            print(answer + pq)
+            lock.acquire()
+            print(answer + pq, flush=True)
+            lock.release()
 
 
 def main1(ws):
@@ -158,6 +161,10 @@ def main():
     t1.start()
     t2.start()
     t3.start()
+
+    t1.join()
+    t2.join()
+    t3.join()
 
 
 if __name__ == '__main__':
